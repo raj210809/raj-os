@@ -1,18 +1,17 @@
 /*
- * linker.ld — Places the kernel at physical 0x10000 (must match KERNEL_PHYS).
- *
- * The bootloader jumps to kernel_main with CS=0x08 and a flat data segment.
- * This script lays out: .text → .rodata → .data → .bss, then reserves an
- * aligned stack region at the end of BSS for the C calling convention.
+ * linker.ld — 64-bit kernel at physical 0x10000 (identity-mapped by bootloader).
  */
 
-OUTPUT_FORMAT(elf32-i386)
-ENTRY(kernel_main)
+OUTPUT_FORMAT(elf64-x86-64)
+ENTRY(enter_long_mode)
 
 SECTIONS
 {
-    /* Load address agreed with boot/pm.inc and include/constants.inc */
     . = 0x10000;
+
+    .text32 : ALIGN(4) {
+        *(.text32)
+    }
 
     .text : ALIGN(4) {
         *(.text .text.*)
@@ -26,11 +25,6 @@ SECTIONS
         *(.data .data.*)
     }
 
-    /*
-     * Uninitialized globals (.bss).  Not stored in kernel.bin — entry.asm zeroes
-     * this range before calling kmain().  The C stack lives at PM_STACK_TOP
-     * (see entry.asm), separate from the loaded image.
-     */
     .bss : ALIGN(16) {
         __bss_start = .;
         *(.bss .bss.*)

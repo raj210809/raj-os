@@ -1,10 +1,5 @@
 /*
- * idt.c — Build the IDT and dispatch CPU exceptions to a C handler.
- *
- * Each IDT entry is an 8-byte gate telling the CPU where to jump for a given
- * vector.  Vectors 0–31 are CPU exceptions; without our IDT, those become
- * triple faults (QEMU reset).  With it, we print diagnostics and either recover
- * or halt in a controlled way.
+ * idt.c — Build the 64-bit IDT and dispatch CPU exceptions to a C handler.
  */
 
 #include "idt.h"
@@ -14,25 +9,25 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* One 8-byte IDT gate (see Intel SDM Vol.3A §6.14). */
+/* One 16-byte IDT gate (Intel SDM Vol.3A §6.14.1, long-mode). */
 struct idt_entry {
-    uint16_t base_low;
+    uint16_t offset_low;
     uint16_t selector;
-    uint8_t  zero;
+    uint8_t  ist;
     uint8_t  type_attr;
-    uint16_t base_high;
+    uint16_t offset_mid;
+    uint32_t offset_high;
+    uint32_t zero;
 } __attribute__((packed));
 
-/* 6-byte pseudo-descriptor loaded with LIDT. */
 struct idt_ptr {
     uint16_t limit;
-    uint32_t base;
+    uint64_t base;
 } __attribute__((packed));
 
 static struct idt_entry idt[256];
 static struct idt_ptr   idtp;
 
-/* ISR symbols from kernel/arch/idt_stubs.asm (vectors 0–31). */
 #define ISR_DECL(n) extern void isr##n(void)
 ISR_DECL(0);  ISR_DECL(1);  ISR_DECL(2);  ISR_DECL(3);
 ISR_DECL(4);  ISR_DECL(5);  ISR_DECL(6);  ISR_DECL(7);
@@ -85,23 +80,28 @@ static const char *const exception_messages[32] = {
     "Reserved",
 };
 
-static void idt_set_gate(uint8_t vector, uint32_t handler, uint16_t selector, uint8_t flags)
+static void __attribute__((noinline)) idt_set_gate(uint8_t vector, uint64_t handler,
+                                                 uint16_t selector, uint8_t flags)
 {
-    idt[vector].base_low  = (uint16_t)(handler & 0xFFFF);
-    idt[vector].base_high = (uint16_t)((handler >> 16) & 0xFFFF);
-    idt[vector].selector  = selector;
-    idt[vector].zero      = 0;
-    idt[vector].type_attr = flags;
+    idt[vector].offset_low  = (uint16_t)(handler & 0xFFFFU);
+    idt[vector].selector    = selector;
+    idt[vector].ist         = 0;
+    idt[vector].type_attr   = flags;
+    idt[vector].offset_mid  = (uint16_t)((handler >> 16) & 0xFFFFU);
+    idt[vector].offset_high = (uint32_t)(handler >> 32);
+    idt[vector].zero        = 0;
 }
 
 static void idt_zero_table(void)
 {
     for (size_t i = 0; i < 256; i++) {
-        idt[i].base_low  = 0;
-        idt[i].base_high = 0;
-        idt[i].selector  = 0;
-        idt[i].zero      = 0;
-        idt[i].type_attr = 0;
+        idt[i].offset_low  = 0;
+        idt[i].selector    = 0;
+        idt[i].ist         = 0;
+        idt[i].type_attr   = 0;
+        idt[i].offset_mid  = 0;
+        idt[i].offset_high = 0;
+        idt[i].zero        = 0;
     }
 }
 
@@ -110,31 +110,26 @@ void idt_init(void)
     serial_putln("[idt] building table...");
 
     idtp.limit = (uint16_t)(sizeof(idt) - 1);
-    idtp.base  = (uint32_t)&idt[0];
+    idtp.base  = (uint64_t)(uintptr_t)&idt[0];
 
     idt_zero_table();
 
-    /*
-     * 0x8E = present, DPL 0, 32-bit interrupt gate.
-     * Selector 0x08 = flat code segment from boot/gdt.inc.
-     */
+    /* 0x8E = present, DPL 0, 64-bit interrupt gate. */
     for (uint8_t i = 0; i < 32; i++) {
-        idt_set_gate(i, (uint32_t)isr_table[i], 0x08, 0x8E);
+        idt_set_gate(i, (uint64_t)(uintptr_t)isr_table[i], IDT_CODE64_SEL, 0x8E);
     }
 
     serial_putln("[idt] lidt...");
     __asm__ __volatile__("lidt %0" : : "m"(idtp));
-    __asm__ __volatile__("cli");   /* stay masked until we add PIC + IRQ handlers */
+    __asm__ __volatile__("cli");
 
     serial_putln("[idt] loaded vectors 0-31 (exceptions)");
 }
 
-/* Install or replace one IDT gate (used by irq_init for vectors 32–47). */
 void idt_register_handler(uint8_t vector, void (*handler)(void))
 {
-    idt_set_gate(vector, (uint32_t)handler, 0x08, 0x8E);
+    idt_set_gate(vector, (uint64_t)(uintptr_t)handler, IDT_CODE64_SEL, 0x8E);
 }
-
 
 static const char *exception_name(uint32_t vector)
 {
@@ -146,7 +141,7 @@ static const char *exception_name(uint32_t vector)
 
 static void report_exception(registers_t *regs)
 {
-    const char *name = exception_name(regs->int_no);
+    const char *name = exception_name((uint32_t)regs->int_no);
 
     vga_set_color(VGA_COLOR_WHITE, VGA_COLOR_RED);
     vga_write_at(12, 0, "!!! CPU EXCEPTION — kernel caught it !!!       ");
@@ -154,10 +149,9 @@ static void report_exception(registers_t *regs)
 
     vga_write_at(14, 0, "Vector: ");
     vga_write_at(15, 0, "Name:   ");
-    vga_write_at(16, 0, "EIP:    ");
+    vga_write_at(16, 0, "RIP:    ");
     vga_write_at(17, 0, "ERR:    ");
 
-    /* Decimal vector number on row 14 */
     {
         char buf[8];
         uint8_t v = (uint8_t)regs->int_no;
@@ -170,43 +164,33 @@ static void report_exception(registers_t *regs)
     vga_write_at(15, 9, name);
 
     serial_puts("[exception] vector=");
-    serial_print_hex32(regs->int_no);
+    serial_print_hex32((uint32_t)regs->int_no);
     serial_puts(" err=");
-    serial_print_hex32(regs->err_code);
-    serial_puts(" eip=");
-    serial_print_hex32(regs->eip);
+    serial_print_hex32((uint32_t)regs->err_code);
+    serial_puts(" rip=");
+    serial_print_hex64(regs->rip);
     serial_puts(" — ");
     serial_puts(name);
     serial_putln("");
 }
 
-/*
- * Recoverable cases advance EIP past the faulting instruction so IRET resumes
- * after the trap.  Fatal cases print and halt (no QEMU reset).
- */
 void exception_handler(registers_t *regs)
 {
     report_exception(regs);
 
     switch (regs->int_no) {
     case EXC_INVALID_OPCODE:
-        /* UD2 is 2 bytes — skip it and return to caller. */
-        regs->eip += 2;
+        regs->rip += 2;
         serial_putln("[exception] UD2 skipped — execution continues");
         vga_write_at(19, 0, "Recovered: UD2 (invalid opcode) skipped.       ");
         return;
 
     case EXC_BREAKPOINT:
-        /* INT3 is 1 byte. */
-        regs->eip += 1;
+        regs->rip += 1;
         serial_putln("[exception] breakpoint skipped");
         return;
 
     case EXC_DIVIDE_BY_ZERO:
-        /*
-         * Cannot safely resume a failing DIV/IDIV without knowing its length.
-         * Halt here so QEMU stays alive with a message on screen.
-         */
         serial_putln("[exception] divide by zero — halted (no reboot)");
         vga_write_at(19, 0, "Halted: divide by zero (reset QEMU to retry).  ");
         vga_set_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);

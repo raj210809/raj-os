@@ -1,32 +1,26 @@
 ; =============================================================================
-; idt_stubs.asm — ISR trampolines for CPU exceptions (vectors 0–31).
+; idt_stubs.asm — ISR/IRQ trampolines for 64-bit long mode.
 ; =============================================================================
-; The CPU jumps here with CS:EIP/EFLAGS [+ error code] on the stack.
-; We save registers, call exception_handler() in C, restore, and IRET.
-;
-; Two macro kinds:
-;   ISR_NOERRCODE — CPU did not push an error code; we push a dummy 0.
-;   ISR_ERRCODE   — CPU already pushed error code; we only push vector #.
+; CPU pushes RIP, CS, RFLAGS [+ error code].  We push vector (and dummy err
+; when needed), save GPRs, call C, restore, and IRETQ.
 ; =============================================================================
 
 %include "constants.inc"
 
-bits 32
-
-; --- Stub per vector ---------------------------------------------------------
+bits 64
 
 %macro ISR_NOERRCODE 1
 global isr%1
 isr%1:
-    push dword 0                 ; dummy error code (uniform stack frame)
-    push dword %1                ; interrupt / exception number
+    push qword 0
+    push qword %1
     jmp isr_common_stub
 %endmacro
 
 %macro ISR_ERRCODE 1
 global isr%1
 isr%1:
-    push dword %1                ; vector (real error code is already on stack)
+    push qword %1
     jmp isr_common_stub
 %endmacro
 
@@ -63,28 +57,46 @@ ISR_NOERRCODE 29
 ISR_NOERRCODE 30
 ISR_NOERRCODE 31
 
-; --- Common path to C ----------------------------------------------------------
-
 global isr_common_stub
 isr_common_stub:
-    ; Save DS and reload flat data segments for C (matches registers_t layout).
-    push ds
-    mov ax, GDT_DATA_SEL
-    mov ds, ax
-    mov es, ax
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
 
-    pusha                        ; eax..edi at bottom of frame (ESP points at EDI)
-
-    push esp                     ; &registers_t for exception_handler()
+    mov rdi, rsp
     extern exception_handler
     call exception_handler
-    add esp, 4
 
-    popa
-    pop ds
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
 
-    add esp, 8                   ; remove dummy/real err_code + vector number
-    iret
+    add rsp, 16
+    iretq
 
 ; =============================================================================
 ; Hardware IRQ stubs (IDT vectors 32–47 after PIC remap).
@@ -93,8 +105,8 @@ isr_common_stub:
 %macro IRQ 1
 global irq%1
 irq%1:
-    push dword 0                 ; IRQs have no CPU error code
-    push dword %1                ; IDT vector number
+    push qword 0
+    push qword %1
     jmp irq_common_stub
 %endmacro
 
@@ -117,20 +129,41 @@ IRQ 47
 
 global irq_common_stub
 irq_common_stub:
-    push ds
-    mov ax, GDT_DATA_SEL
-    mov ds, ax
-    mov es, ax
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
 
-    pusha
-
-    push esp
+    mov rdi, rsp
     extern irq_handler
     call irq_handler
-    add esp, 4
 
-    popa
-    pop ds
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
 
-    add esp, 8
-    iret
+    add rsp, 16
+    iretq

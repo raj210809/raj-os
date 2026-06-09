@@ -27,13 +27,19 @@
     24                              <1> %define GDT_NULL_SEL     0x00
     25                              <1> %define GDT_CODE_SEL     0x08
     26                              <1> %define GDT_DATA_SEL     0x10
-    27                              <1> 
-    28                              <1> %endif
+    27                              <1> %define GDT_CODE64_SEL   0x18
+    28                              <1> 
+    29                              <1> ; --- Boot page tables (see boot/longmode.inc) --------------------------------
+    30                              <1> %define PT_PML4_PHYS     0x9000
+    31                              <1> %define PT_PDPT_PHYS     0xA000
+    32                              <1> %define PT_PD_PHYS       0xB000
+    33                              <1> 
+    34                              <1> %endif
      4                                  
      5                                  org BOOTLOADER_ORG
      6                                  bits 16
      7                                  
-     8 00000000 E93501                  jmp start
+     8 00000000 E93D01                  jmp start
      9                                  
     10                                  %include "print16.inc"
      1                              <1> ; Real-mode output: INT 10h in normal builds, serial-only when DEBUG_SERIAL is set.
@@ -130,7 +136,7 @@
      1                              <1> ; INT 13h EDD (AH=41h / AH=42h) disk I/O.
      2                              <1> 
      3                              <1> check_edd:
-     4 0000006F 8A16[7401]          <1>     mov dl, [boot_drive]
+     4 0000006F 8A16[7C01]          <1>     mov dl, [boot_drive]
      5 00000073 B441                <1>     mov ah, 0x41
      6 00000075 BBAA55              <1>     mov bx, 0x55AA
      7 00000078 CD13                <1>     int 0x13
@@ -150,47 +156,54 @@
     21 0000008B C3                  <1>     ret
     22                              <1> 
     23                              <1> load_kernel_edd:
-    24 0000008C 8A16[7401]          <1>     mov dl, [boot_drive]
-    25 00000090 C706[7701]1800      <1>     mov word [disk_packet + 2], KERNEL_SECTORS
-    26 00000096 C706[7901]0000      <1>     mov word [disk_packet + 4], KERNEL_LOAD_OFF
-    27 0000009C C706[7B01]0010      <1>     mov word [disk_packet + 6], KERNEL_LOAD_SEG
-    28 000000A2 66C706[7D01]010000- <1>     mov dword [disk_packet + 8], KERNEL_LBA_START
+    24 0000008C 8A16[7C01]          <1>     mov dl, [boot_drive]
+    25 00000090 C706[7F01]1800      <1>     mov word [disk_packet + 2], KERNEL_SECTORS
+    26 00000096 C706[8101]0000      <1>     mov word [disk_packet + 4], KERNEL_LOAD_OFF
+    27 0000009C C706[8301]0010      <1>     mov word [disk_packet + 6], KERNEL_LOAD_SEG
+    28 000000A2 66C706[8501]010000- <1>     mov dword [disk_packet + 8], KERNEL_LBA_START
     28 000000AA 00                  <1>
-    29 000000AB 66C706[8101]000000- <1>     mov dword [disk_packet + 12], 0
+    29 000000AB 66C706[8901]000000- <1>     mov dword [disk_packet + 12], 0
     29 000000B3 00                  <1>
     30                              <1> 
     31 000000B4 B442                <1>     mov ah, 0x42
-    32 000000B6 BE[7501]            <1>     mov si, disk_packet
+    32 000000B6 BE[7D01]            <1>     mov si, disk_packet
     33 000000B9 CD13                <1>     int 0x13
     34 000000BB C3                  <1>     ret
     13                                  %include "gdt.inc"
-     1                              <1> ; Minimal flat GDT for 32-bit protected mode.
-     2                              <1> ; Code and data segments both cover the full 4 GiB address space (base 0).
-     3                              <1> 
-     4                              <1> gdt_start:
-     5 000000BC 0000000000000000    <1>     dq 0                         ; [0] null descriptor (required)
-     6                              <1> 
-     7                              <1> gdt_code:
-     8 000000C4 FFFF                <1>     dw 0xFFFF                    ; limit 15:0
-     9 000000C6 0000                <1>     dw 0                         ; base 15:0
-    10 000000C8 00                  <1>     db 0                         ; base 23:16
-    11 000000C9 9A                  <1>     db 10011010b                 ; present, ring 0, code, executable, readable
-    12 000000CA CF                  <1>     db 11001111b                 ; 4 KiB granularity, 32-bit, limit 19:16
-    13 000000CB 00                  <1>     db 0                         ; base 31:24
-    14                              <1> 
-    15                              <1> gdt_data:
-    16 000000CC FFFF                <1>     dw 0xFFFF
-    17 000000CE 0000                <1>     dw 0
-    18 000000D0 00                  <1>     db 0
-    19 000000D1 92                  <1>     db 10010010b                 ; present, ring 0, data, writable
-    20 000000D2 CF                  <1>     db 11001111b
-    21 000000D3 00                  <1>     db 0
-    22                              <1> 
-    23                              <1> gdt_end:
-    24                              <1> 
-    25                              <1> gdt_descriptor:
-    26 000000D4 1700                <1>     dw gdt_end - gdt_start - 1
-    27 000000D6 [BC000000]          <1>     dd gdt_start
+     1                              <1> ; Flat GDT: null, 32-bit code/data (protected mode), 64-bit code (long mode).
+     2                              <1> 
+     3                              <1> gdt_start:
+     4 000000BC 0000000000000000    <1>     dq 0
+     5                              <1> 
+     6                              <1> gdt_code:
+     7 000000C4 FFFF                <1>     dw 0xFFFF
+     8 000000C6 0000                <1>     dw 0
+     9 000000C8 00                  <1>     db 0
+    10 000000C9 9A                  <1>     db 10011010b
+    11 000000CA CF                  <1>     db 11001111b
+    12 000000CB 00                  <1>     db 0
+    13                              <1> 
+    14                              <1> gdt_data:
+    15 000000CC FFFF                <1>     dw 0xFFFF
+    16 000000CE 0000                <1>     dw 0
+    17 000000D0 00                  <1>     db 0
+    18 000000D1 92                  <1>     db 10010010b
+    19 000000D2 CF                  <1>     db 11001111b
+    20 000000D3 00                  <1>     db 0
+    21                              <1> 
+    22                              <1> gdt_code64:
+    23 000000D4 FFFF                <1>     dw 0xFFFF
+    24 000000D6 0000                <1>     dw 0
+    25 000000D8 00                  <1>     db 0
+    26 000000D9 9A                  <1>     db 10011010b
+    27 000000DA AF                  <1>     db 10101111b
+    28 000000DB 00                  <1>     db 0
+    29                              <1> 
+    30                              <1> gdt_end:
+    31                              <1> 
+    32                              <1> gdt_descriptor:
+    33 000000DC 1F00                <1>     dw gdt_end - gdt_start - 1
+    34 000000DE [BC000000]          <1>     dd gdt_start
     14                                  %include "e820.inc"
      1                              <1> ; =============================================================================
      2                              <1> ; e820.inc — BIOS INT 15h AX=E820h memory map (real mode only).
@@ -204,80 +217,80 @@
     10                              <1> %define E820_ENTRY_SIZE  24
     11                              <1> 
     12                              <1> detect_memory_e820:
-    13 000000DA 6650                <1>     push eax
-    14 000000DC 6653                <1>     push ebx
-    15 000000DE 6651                <1>     push ecx
-    16 000000E0 6652                <1>     push edx
-    17 000000E2 57                  <1>     push di
+    13 000000E2 6650                <1>     push eax
+    14 000000E4 6653                <1>     push ebx
+    15 000000E6 6651                <1>     push ecx
+    16 000000E8 6652                <1>     push edx
+    17 000000EA 57                  <1>     push di
     18                              <1> 
-    19 000000E3 31C0                <1>     xor ax, ax
-    20 000000E5 8EC0                <1>     mov es, ax
+    19 000000EB 31C0                <1>     xor ax, ax
+    20 000000ED 8EC0                <1>     mov es, ax
     21                              <1> 
     22                              <1>     ; Clear the whole map buffer (count + entries).
-    23 000000E7 BF0080              <1>     mov di, MEMMAP_PHYS
-    24 000000EA B90001              <1>     mov cx, 256
-    25 000000ED 31C0                <1>     xor ax, ax
-    26 000000EF F3AB                <1>     rep stosw
+    23 000000EF BF0080              <1>     mov di, MEMMAP_PHYS
+    24 000000F2 B90001              <1>     mov cx, 256
+    25 000000F5 31C0                <1>     xor ax, ax
+    26 000000F7 F3AB                <1>     rep stosw
     27                              <1> 
-    28 000000F1 BF0480              <1>     mov di, MEMMAP_PHYS + 4
-    29 000000F4 6631DB              <1>     xor ebx, ebx
-    30 000000F7 66BA50414D53        <1>     mov edx, 0x0534D4150
-    31 000000FD 66B918000000        <1>     mov ecx, E820_ENTRY_SIZE
+    28 000000F9 BF0480              <1>     mov di, MEMMAP_PHYS + 4
+    29 000000FC 6631DB              <1>     xor ebx, ebx
+    30 000000FF 66BA50414D53        <1>     mov edx, 0x0534D4150
+    31 00000105 66B918000000        <1>     mov ecx, E820_ENTRY_SIZE
     32                              <1> 
     33                              <1> .loop:
-    34 00000103 31C0                <1>     xor ax, ax
-    35 00000105 8EC0                <1>     mov es, ax
+    34 0000010B 31C0                <1>     xor ax, ax
+    35 0000010D 8EC0                <1>     mov es, ax
     36                              <1> 
-    37 00000107 66B820E80000        <1>     mov eax, 0xE820
-    38 0000010D CD15                <1>     int 0x15
-    39 0000010F 721D                <1>     jc .done
-    40 00000111 663D50414D53        <1>     cmp eax, 0x534D4150
-    41 00000117 7515                <1>     jne .done
+    37 0000010F 66B820E80000        <1>     mov eax, 0xE820
+    38 00000115 CD15                <1>     int 0x15
+    39 00000117 721D                <1>     jc .done
+    40 00000119 663D50414D53        <1>     cmp eax, 0x534D4150
+    41 0000011F 7515                <1>     jne .done
     42                              <1> 
-    43 00000119 66FF060080          <1>     inc dword [MEMMAP_PHYS]
-    44 0000011E 66833E008014        <1>     cmp dword [MEMMAP_PHYS], MEMMAP_MAX
-    45 00000124 7708                <1>     ja .done
+    43 00000121 66FF060080          <1>     inc dword [MEMMAP_PHYS]
+    44 00000126 66833E008014        <1>     cmp dword [MEMMAP_PHYS], MEMMAP_MAX
+    45 0000012C 7708                <1>     ja .done
     46                              <1> 
-    47 00000126 83C718              <1>     add di, E820_ENTRY_SIZE
-    48 00000129 6685DB              <1>     test ebx, ebx
-    49 0000012C 75D5                <1>     jnz .loop
+    47 0000012E 83C718              <1>     add di, E820_ENTRY_SIZE
+    48 00000131 6685DB              <1>     test ebx, ebx
+    49 00000134 75D5                <1>     jnz .loop
     50                              <1> 
     51                              <1> .done:
-    52 0000012E 5F                  <1>     pop di
-    53 0000012F 665A                <1>     pop edx
-    54 00000131 6659                <1>     pop ecx
-    55 00000133 665B                <1>     pop ebx
-    56 00000135 6658                <1>     pop eax
-    57 00000137 C3                  <1>     ret
+    52 00000136 5F                  <1>     pop di
+    53 00000137 665A                <1>     pop edx
+    54 00000139 6659                <1>     pop ecx
+    55 0000013B 665B                <1>     pop ebx
+    56 0000013D 6658                <1>     pop eax
+    57 0000013F C3                  <1>     ret
     58                              <1> 
     59                              <1> %endif
     15                                  
     16                                  start:
-    17 00000138 31C0                        xor ax, ax
-    18 0000013A 8ED8                        mov ds, ax
-    19 0000013C 8EC0                        mov es, ax
-    20 0000013E 8ED0                        mov ss, ax
-    21 00000140 BC007C                      mov sp, BOOTLOADER_ORG
+    17 00000140 31C0                        xor ax, ax
+    18 00000142 8ED8                        mov ds, ax
+    19 00000144 8EC0                        mov es, ax
+    20 00000146 8ED0                        mov ss, ax
+    21 00000148 BC007C                      mov sp, BOOTLOADER_ORG
     22                                  
-    23 00000143 8816[7401]                  mov [boot_drive], dl
+    23 0000014B 8816[7C01]                  mov [boot_drive], dl
     24                                  
     25                                  %ifdef DEBUG_SERIAL
     26                                      mov si, msg_start
     27                                      call print_string
     28                                  %endif
     29                                  
-    30 00000147 E825FF                      call check_edd
-    31 0000014A 7210                        jc edd_unavailable
+    30 0000014F E81DFF                      call check_edd
+    31 00000152 7210                        jc edd_unavailable
     32                                  
     33                                  %ifdef DEBUG_SERIAL
     34                                      mov si, msg_edd_ok
     35                                      call print_string
     36                                  %endif
     37                                  
-    38 0000014C E83DFF                      call load_kernel_edd
-    39 0000014F 7213                        jc load_failed
+    38 00000154 E835FF                      call load_kernel_edd
+    39 00000157 7213                        jc load_failed
     40                                  
-    41 00000151 E886FF                      call detect_memory_e820
+    41 00000159 E886FF                      call detect_memory_e820
     42                                  
     43                                  %ifdef DEBUG_SERIAL
     44                                      mov si, msg_loaded
@@ -290,38 +303,38 @@
     51                                      call print_string
     52                                      jmp do_pm
     53                                  %else
-    54 00000154 E8C5FE                      call enable_a20
-    55 00000157 7213                        jc a20_failed
+    54 0000015C E8BDFE                      call enable_a20
+    55 0000015F 7213                        jc a20_failed
     56                                  do_pm:
     57                                  %endif
     58                                  
-    59 00000159 E84700                      call enter_protected_mode
+    59 00000161 E84700                      call enter_protected_mode
     60                                  
     61                                  edd_unavailable:
-    62 0000015C BE[8501]                    mov si, msg_no_edd
-    63 0000015F E8A1FE                      call print_string
-    64 00000162 EBFE                        jmp $
+    62 00000164 BE[8D01]                    mov si, msg_no_edd
+    63 00000167 E899FE                      call print_string
+    64 0000016A EBFE                        jmp $
     65                                  
     66                                  load_failed:
-    67 00000164 BE[8E01]                    mov si, msg_load_err
-    68 00000167 E899FE                      call print_string
-    69 0000016A EBFE                        jmp $
+    67 0000016C BE[9601]                    mov si, msg_load_err
+    68 0000016F E891FE                      call print_string
+    69 00000172 EBFE                        jmp $
     70                                  
     71                                  a20_failed:
-    72 0000016C BE[9901]                    mov si, msg_a20_err
-    73 0000016F E891FE                      call print_string
-    74 00000172 EBFE                        jmp $
+    72 00000174 BE[A101]                    mov si, msg_a20_err
+    73 00000177 E889FE                      call print_string
+    74 0000017A EBFE                        jmp $
     75                                  
-    76 00000174 00                      boot_drive: db 0
+    76 0000017C 00                      boot_drive: db 0
     77                                  
     78                                  disk_packet:
-    79 00000175 10                          db 0x10
-    80 00000176 00                          db 0
-    81 00000177 1800                        dw KERNEL_SECTORS
-    82 00000179 0000                        dw KERNEL_LOAD_OFF
-    83 0000017B 0010                        dw KERNEL_LOAD_SEG
-    84 0000017D 01000000                    dd KERNEL_LBA_START
-    85 00000181 00000000                    dd 0
+    79 0000017D 10                          db 0x10
+    80 0000017E 00                          db 0
+    81 0000017F 1800                        dw KERNEL_SECTORS
+    82 00000181 0000                        dw KERNEL_LOAD_OFF
+    83 00000183 0010                        dw KERNEL_LOAD_SEG
+    84 00000185 01000000                    dd KERNEL_LBA_START
+    85 00000189 00000000                    dd 0
     86                                  
     87                                  %ifdef DEBUG_SERIAL
     88                                  msg_start    db 'EDD...', 13, 10, 0
@@ -330,43 +343,37 @@
     91                                  msg_a20_ok   db 'A20 OK', 13, 10, 0
     92                                  msg_pm       db 'PM', 13, 10, 0
     93                                  %endif
-    94 00000185 4E6F204544440D0A00      msg_no_edd   db 'No EDD', 13, 10, 0
-    95 0000018E 52656164206572720D-     msg_load_err db 'Read err', 13, 10, 0
-    95 00000197 0A00               
-    96 00000199 413230206572720D0A-     msg_a20_err  db 'A20 err', 13, 10, 0
-    96 000001A2 00                 
+    94 0000018D 4E6F204544440D0A00      msg_no_edd   db 'No EDD', 13, 10, 0
+    95 00000196 52656164206572720D-     msg_load_err db 'Read err', 13, 10, 0
+    95 0000019F 0A00               
+    96 000001A1 413230206572720D0A-     msg_a20_err  db 'A20 err', 13, 10, 0
+    96 000001AA 00                 
     97                                  
     98                                  %include "pm.inc"
-     1                              <1> ; Switch from real mode to 32-bit protected mode, then jump to the kernel.
-     2                              <1> ; Does not return.
-     3                              <1> ;
-     4                              <1> ; Stack note: PM_STACK_TOP is a *temporary* stack for the first instructions in
-     5                              <1> ; protected mode.  kernel/entry.asm replaces it with the linker-reserved C stack
-     6                              <1> ; before calling kmain().
+     1                              <1> ; Real mode -> 32-bit protected mode -> kernel at KERNEL_PHYS (32-bit entry).
+     2                              <1> ; The kernel entry stub enables PAE/PML4 and switches to long mode.
+     3                              <1> 
+     4                              <1> enter_protected_mode:
+     5 000001AB FA                  <1>     cli
+     6 000001AC 0F0116[DC00]        <1>     lgdt [gdt_descriptor]
      7                              <1> 
-     8                              <1> enter_protected_mode:
-     9 000001A3 FA                  <1>     cli
-    10 000001A4 0F0116[D400]        <1>     lgdt [gdt_descriptor]
+     8 000001B1 0F20C0              <1>     mov eax, cr0
+     9 000001B4 6683C801            <1>     or eax, 1
+    10 000001B8 0F22C0              <1>     mov cr0, eax
     11                              <1> 
-    12 000001A9 0F20C0              <1>     mov eax, cr0
-    13 000001AC 6683C801            <1>     or eax, 1                    ; set PE (Protection Enable)
-    14 000001B0 0F22C0              <1>     mov cr0, eax
-    15                              <1> 
-    16                              <1>     ; Far jump flushes the prefetch queue and loads CS with the code selector.
-    17 000001B3 EA[B801]0800        <1>     jmp GDT_CODE_SEL:pm_entry
-    18                              <1> 
-    19                              <1> bits 32
-    20                              <1> pm_entry:
-    21 000001B8 66B81000            <1>     mov ax, GDT_DATA_SEL
-    22 000001BC 8ED8                <1>     mov ds, ax
-    23 000001BE 8EC0                <1>     mov es, ax
-    24 000001C0 8EE0                <1>     mov fs, ax
-    25 000001C2 8EE8                <1>     mov gs, ax
-    26 000001C4 8ED0                <1>     mov ss, ax
-    27 000001C6 BC00000900          <1>     mov esp, PM_STACK_TOP
-    28                              <1> 
-    29                              <1>     ; Absolute far jump — plain "jmp 0x10000" assembles as a relative near jmp!
-    30 000001CB EA000001000800      <1>     jmp GDT_CODE_SEL:KERNEL_PHYS
+    12 000001BB EA[C001]0800        <1>     jmp GDT_CODE_SEL:pm_entry
+    13                              <1> 
+    14                              <1> bits 32
+    15                              <1> pm_entry:
+    16 000001C0 66B81000            <1>     mov ax, GDT_DATA_SEL
+    17 000001C4 8ED8                <1>     mov ds, ax
+    18 000001C6 8EC0                <1>     mov es, ax
+    19 000001C8 8EE0                <1>     mov fs, ax
+    20 000001CA 8EE8                <1>     mov gs, ax
+    21 000001CC 8ED0                <1>     mov ss, ax
+    22 000001CE BC00000900          <1>     mov esp, PM_STACK_TOP
+    23                              <1> 
+    24 000001D3 EA000001000800      <1>     jmp GDT_CODE_SEL:KERNEL_PHYS
     99                                  
-   100 000001D2 00<rep 2Ch>             times 510-($-$$) db 0
+   100 000001DA 00<rep 24h>             times 510-($-$$) db 0
    101 000001FE 55AA                    dw 0xAA55

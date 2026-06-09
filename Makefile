@@ -22,19 +22,27 @@ ADDRS_GDB  := debug/addresses.gdb
 
 NASM_BOOT_FLAGS   := -f bin -I include -I boot
 NASM_BOOT_DEBUG   := -f bin -I include -I boot -DDEBUG_SERIAL
-NASM_KERNEL_FLAGS := -f elf32 -I include -I kernel
+NASM_KERNEL_FLAGS := -f elf64 -I include -I kernel
 
-KERNEL_C_SRCS := kernel/main.c kernel/drivers/vga.c kernel/drivers/keyboard.c \
-                 kernel/arch/idt.c kernel/arch/idt_tests.c \
-                 kernel/arch/pic.c kernel/arch/irq.c \
-                 kernel/mm/memmap.c kernel/mm/pmm.c
+# Phases A–D: 64-bit kernel with IDT, PIC/IRQ, and keyboard.
+KERNEL_C_SRCS := \
+	kernel/main.c \
+	kernel/serial64.c \
+	kernel/drivers/vga.c \
+	kernel/arch/idt.c \
+	kernel/arch/idt_tests.c \
+	kernel/arch/irq.c \
+	kernel/arch/pic.c \
+	kernel/drivers/keyboard.c
 KERNEL_C_OBJS := $(KERNEL_C_SRCS:%.c=$(BUILD_DIR)/%.o)
-KERNEL_ASM_OBJS := $(BUILD_DIR)/kernel/entry.o $(BUILD_DIR)/kernel/arch/idt_stubs.o
+KERNEL_ASM_OBJS := \
+	$(BUILD_DIR)/kernel/longmode.o \
+	$(BUILD_DIR)/kernel/entry.o \
+	$(BUILD_DIR)/kernel/arch/idt_stubs.o
 
-# Freestanding 32-bit kernel — no libc, no standard startup files.
-CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector \
-          -mgeneral-regs-only -nostdlib -Wall -Wextra -Werror -g -I include
-LDFLAGS := -m elf_i386 -nostdlib -T $(KERNEL_LD)
+CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone \
+          -nostdlib -Wall -Wextra -Werror -g -I include
+LDFLAGS := -m elf_x86_64 -nostdlib -T $(KERNEL_LD)
 
 KERNEL_SECTORS := 24
 KERNEL_BYTES   := $(shell echo $$(( $(KERNEL_SECTORS) * 512 )))
@@ -43,7 +51,6 @@ QEMU_DRIVE   := -drive file=$(DISK),format=raw,if=ide,index=0,media=disk -boot c
 QEMU_DRIVE_DEBUG := -drive file=$(DISK_DEBUG),format=raw,if=ide,index=0,media=disk -boot c
 QEMU_SERIAL  := -serial stdio
 QEMU_GDB     := -s -S
-# Classic PC + std VGA so writes to 0xB8000 show in the QEMU window.
 QEMU_MACHINE ?= -machine pc-i440fx-9.2
 QEMU_VGA     ?= -vga std
 QEMU_COMMON  := $(QEMU_MACHINE) $(QEMU_VGA)
@@ -61,9 +68,7 @@ EX3_DISK := $(EXERCISES_DIR)/exercise3.img
 all: $(DISK)
 
 $(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)/kernel/drivers
-
-# --- Normal (VGA) build -------------------------------------------------------
+	mkdir -p $(BUILD_DIR)/kernel/drivers $(BUILD_DIR)/kernel/arch
 
 $(BOOT_BIN): $(BOOT_SRC) boot/*.inc include/constants.inc | $(BUILD_DIR)
 	$(NASM) $(NASM_BOOT_FLAGS) $(BOOT_SRC) -l $(BOOT_LST) -o $@
@@ -73,7 +78,11 @@ $(BUILD_DIR)/%.o: %.c include/*.h | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/kernel/entry.o: $(KERNEL_ENTRY) kernel/serial32.inc include/constants.inc | $(BUILD_DIR)
+$(BUILD_DIR)/kernel/longmode.o: kernel/longmode.asm include/constants.inc | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(NASM) $(NASM_KERNEL_FLAGS) kernel/longmode.asm -o $@
+
+$(BUILD_DIR)/kernel/entry.o: $(KERNEL_ENTRY) include/constants.inc | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
 	$(NASM) $(NASM_KERNEL_FLAGS) $(KERNEL_ENTRY) -o $@
 
@@ -96,10 +105,8 @@ $(DISK): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $(BOOT_BIN) $(KERNEL_BIN) > $@
 
 run: $(DISK)
-	@echo "Serial log (entry + kmain) -> this terminal. VGA text -> QEMU window."
+	@echo "Serial log (boot + entry + kmain) -> this terminal. VGA -> QEMU window."
 	$(QEMU) $(QEMU_COMMON) $(QEMU_DRIVE) $(QEMU_SERIAL) -display default
-
-# --- Debug build (serial boot + GDB symbols) ----------------------------------
 
 $(BOOT_DEBUG): $(BOOT_SRC) boot/*.inc include/constants.inc | $(BUILD_DIR)
 	$(NASM) $(NASM_BOOT_DEBUG) $(BOOT_SRC) -l $(BOOT_LST) -o $@
@@ -112,8 +119,6 @@ $(ADDRS_GDB): $(BOOT_DEBUG) debug/gen-syms.sh
 	@chmod +x debug/gen-syms.sh
 	debug/gen-syms.sh $(BOOT_LST) > $@
 
-# --- GDB targets --------------------------------------------------------------
-
 gdb-server: $(DISK_DEBUG) $(KERNEL_ELF) $(ADDRS_GDB)
 	@echo ""
 	@echo "  QEMU running (paused). Serial output -> THIS terminal."
@@ -125,8 +130,6 @@ gdb-server: $(DISK_DEBUG) $(KERNEL_ELF) $(ADDRS_GDB)
 	@echo "  CPU is frozen until you connect GDB and type 'c'."
 	@echo "  Open another terminal (nix develop) and run:"
 	@echo "    make gdb-connect"
-	@echo ""
-	@echo "  Or use one terminal:  make debug"
 	@echo ""
 	@if [ "$(DEBUG_HEADLESS)" = "1" ]; then \
 		$(QEMU) $(QEMU_COMMON) $(QEMU_DRIVE_DEBUG) $(QEMU_SERIAL) $(QEMU_GDB) -display none; \
@@ -142,8 +145,6 @@ debug: $(DISK_DEBUG) $(KERNEL_ELF) $(ADDRS_GDB)
 	./scripts/debug.sh
 
 gdb: gdb-server
-
-# --- Learning exercises -------------------------------------------------------
 
 $(EX1_BOOT): $(EXERCISES_DIR)/exercise1.asm
 	$(NASM) -f bin $< -o $@

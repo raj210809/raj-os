@@ -23,4 +23,7 @@ void serial_putchar(char c);
 /* Print a 32-bit value as eight hex digits (no newline). */
 void serial_print_hex32(uint32_t value);
 
+/* Print a 64-bit value as sixteen hex digits (no newline). */
+void serial_print_hex64(uint64_t value);
+
 #endif /* SERIAL_H */

@@ -24,5 +24,11 @@
 %define GDT_NULL_SEL     0x00
 %define GDT_CODE_SEL     0x08
 %define GDT_DATA_SEL     0x10
+%define GDT_CODE64_SEL   0x18
+
+; --- Boot page tables (see boot/longmode.inc) --------------------------------
+%define PT_PML4_PHYS     0x9000
+%define PT_PDPT_PHYS     0xA000
+%define PT_PD_PHYS       0xB000
 
 %endif
