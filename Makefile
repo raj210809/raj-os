@@ -24,16 +24,23 @@ NASM_BOOT_FLAGS   := -f bin -I include -I boot
 NASM_BOOT_DEBUG   := -f bin -I include -I boot -DDEBUG_SERIAL
 NASM_KERNEL_FLAGS := -f elf64 -I include -I kernel
 
-# Phases A–D: 64-bit kernel with IDT, PIC/IRQ, and keyboard.
+# Phases A–E: 64-bit kernel with E820/PMM, IDT, PIC/IRQ, and keyboard.
 KERNEL_C_SRCS := \
 	kernel/main.c \
 	kernel/serial64.c \
 	kernel/drivers/vga.c \
+	kernel/mm/memmap.c \
+	kernel/mm/pmm.c \
+	kernel/mm/vmm.c \
+	kernel/mm/vmm_test.c \
+	kernel/mm/kmalloc.c \
+	kernel/mm/kmalloc_test.c \
 	kernel/arch/idt.c \
 	kernel/arch/idt_tests.c \
 	kernel/arch/irq.c \
 	kernel/arch/pic.c \
-	kernel/drivers/keyboard.c
+	kernel/drivers/keyboard.c \
+	kernel/drivers/pit.c
 KERNEL_C_OBJS := $(KERNEL_C_SRCS:%.c=$(BUILD_DIR)/%.o)
 KERNEL_ASM_OBJS := \
 	$(BUILD_DIR)/kernel/longmode.o \
@@ -44,7 +51,7 @@ CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone \
           -nostdlib -Wall -Wextra -Werror -g -I include
 LDFLAGS := -m elf_x86_64 -nostdlib -T $(KERNEL_LD)
 
-KERNEL_SECTORS := 24
+KERNEL_SECTORS := 44
 KERNEL_BYTES   := $(shell echo $$(( $(KERNEL_SECTORS) * 512 )))
 
 QEMU_DRIVE   := -drive file=$(DISK),format=raw,if=ide,index=0,media=disk -boot c
@@ -68,7 +75,7 @@ EX3_DISK := $(EXERCISES_DIR)/exercise3.img
 all: $(DISK)
 
 $(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)/kernel/drivers $(BUILD_DIR)/kernel/arch
+	mkdir -p $(BUILD_DIR)/kernel/drivers $(BUILD_DIR)/kernel/arch $(BUILD_DIR)/kernel/mm
 
 $(BOOT_BIN): $(BOOT_SRC) boot/*.inc include/constants.inc | $(BUILD_DIR)
 	$(NASM) $(NASM_BOOT_FLAGS) $(BOOT_SRC) -l $(BOOT_LST) -o $@
@@ -77,6 +84,27 @@ $(BOOT_BIN): $(BOOT_SRC) boot/*.inc include/constants.inc | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: %.c include/*.h | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# GCC vectorizes PMM init loops into broken SIMD stores — build at -O0.
+$(BUILD_DIR)/kernel/mm/pmm.o: kernel/mm/pmm.c include/*.h | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -O0 -c $< -o $@
+
+$(BUILD_DIR)/kernel/mm/kmalloc.o: kernel/mm/kmalloc.c include/*.h | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -O0 -c $< -o $@
+
+$(BUILD_DIR)/kernel/mm/kmalloc_test.o: kernel/mm/kmalloc_test.c include/*.h | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -O0 -c $< -o $@
+
+$(BUILD_DIR)/kernel/mm/vmm.o: kernel/mm/vmm.c include/*.h | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -O0 -c $< -o $@
+
+$(BUILD_DIR)/kernel/mm/vmm_test.o: kernel/mm/vmm_test.c include/*.h | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -O0 -c $< -o $@
 
 $(BUILD_DIR)/kernel/longmode.o: kernel/longmode.asm include/constants.inc | $(BUILD_DIR)
 	@mkdir -p $(dir $@)

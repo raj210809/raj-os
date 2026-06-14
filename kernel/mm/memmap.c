@@ -16,12 +16,6 @@ static const e820_entry_t *mmap_entry(uint32_t index)
     return (const e820_entry_t *)(mmap_raw() + 4 + index * sizeof(e820_entry_t));
 }
 
-static void print_hex64(uint64_t value)
-{
-    serial_print_hex32((uint32_t)(value >> 32));
-    serial_print_hex32((uint32_t)value);
-}
-
 static const char *e820_type_name(uint32_t type)
 {
     switch (type) {
@@ -47,9 +41,9 @@ uint64_t memmap_print(void)
         serial_puts("  [");
         serial_print_hex32(i);
         serial_puts("] base=");
-        print_hex64(e->base);
+        serial_print_hex64(e->base);
         serial_puts(" len=");
-        print_hex64(e->length);
+        serial_print_hex64(e->length);
         serial_puts(" type=");
         serial_print_hex32(e->type);
         serial_puts(" (");
@@ -62,7 +56,7 @@ uint64_t memmap_print(void)
     }
 
     serial_puts("[memmap] total usable RAM = ");
-    print_hex64(usable);
+    serial_print_hex64(usable);
     serial_puts(" bytes\n");
 
     vga_write_at(4, 0, "--- E820 / PMM ---");

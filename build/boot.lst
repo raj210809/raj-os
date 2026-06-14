@@ -21,7 +21,7 @@
     18                              <1> 
     19                              <1> ; --- Disk layout -------------------------------------------------------------
     20                              <1> %define KERNEL_LBA_START 1
-    21                              <1> %define KERNEL_SECTORS   24
+    21                              <1> %define KERNEL_SECTORS   44
     22                              <1> 
     23                              <1> ; --- GDT segment selectors (index << 3) --------------------------------------
     24                              <1> %define GDT_NULL_SEL     0x00
@@ -157,7 +157,7 @@
     22                              <1> 
     23                              <1> load_kernel_edd:
     24 0000008C 8A16[7C01]          <1>     mov dl, [boot_drive]
-    25 00000090 C706[7F01]1800      <1>     mov word [disk_packet + 2], KERNEL_SECTORS
+    25 00000090 C706[7F01]2C00      <1>     mov word [disk_packet + 2], KERNEL_SECTORS
     26 00000096 C706[8101]0000      <1>     mov word [disk_packet + 4], KERNEL_LOAD_OFF
     27 0000009C C706[8301]0010      <1>     mov word [disk_packet + 6], KERNEL_LOAD_SEG
     28 000000A2 66C706[8501]010000- <1>     mov dword [disk_packet + 8], KERNEL_LBA_START
@@ -330,7 +330,7 @@
     78                                  disk_packet:
     79 0000017D 10                          db 0x10
     80 0000017E 00                          db 0
-    81 0000017F 1800                        dw KERNEL_SECTORS
+    81 0000017F 2C00                        dw KERNEL_SECTORS
     82 00000181 0000                        dw KERNEL_LOAD_OFF
     83 00000183 0010                        dw KERNEL_LOAD_SEG
     84 00000185 01000000                    dd KERNEL_LBA_START

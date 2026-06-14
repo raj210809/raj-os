@@ -117,9 +117,7 @@ void pmm_init(void)
     total_pages = 0;
     used_pages  = 0;
 
-    for (uint32_t i = 0; i < PMM_BITMAP_BYTES; i++) {
-        bitmap[i] = 0;
-    }
+    /* Bitmap starts zeroed — kernel/entry.asm clears .bss before kmain(). */
 
     /* How many frames (>= 1 MiB) exist across usable E820 regions? */
     for (uint32_t i = 0; i < count; i++) {
@@ -153,7 +151,7 @@ void pmm_init(void)
     }
 
     serial_puts("[pmm] bitmap @ ");
-    serial_print_hex32((uint32_t)(uintptr_t)&bitmap[0]);
+    serial_print_hex64((uint64_t)(uintptr_t)&bitmap[0]);
     serial_puts("  pages tracked: ");
     serial_print_hex32(total_pages);
     serial_putln("");

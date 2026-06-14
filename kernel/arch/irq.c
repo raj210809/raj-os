@@ -7,6 +7,7 @@
 #include "irq.h"
 #include "keyboard.h"
 #include "pic.h"
+#include "pit.h"
 #include "serial.h"
 
 #define IRQ_COUNT 16
@@ -36,11 +37,12 @@ void irq_init(void)
     }
 
     keyboard_init();
+    pit_init(100);
 
-    /* Unmask IRQ1 (keyboard) only — timer (IRQ0) stays masked for now. */
+    pic_clear_mask(IRQ_TIMER);
     pic_clear_mask(IRQ_KEYBOARD);
 
-    serial_putln("[irq] keyboard unmasked — enabling interrupts (STI)");
+    serial_putln("[irq] timer + keyboard unmasked — enabling interrupts (STI)");
     __asm__ __volatile__("sti");
 }
 
@@ -56,6 +58,10 @@ void irq_handler(registers_t *regs)
     uint8_t irq = (uint8_t)(vector - IRQ_VECTOR_BASE);
 
     switch (vector) {
+    case IRQ_TIMER_VECTOR:
+        pit_handle_irq();
+        break;
+
     case IRQ_KEYBOARD_VECTOR:
         keyboard_handle_irq();
         break;

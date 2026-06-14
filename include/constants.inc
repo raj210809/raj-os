@@ -18,7 +18,7 @@
 
 ; --- Disk layout -------------------------------------------------------------
 %define KERNEL_LBA_START 1
-%define KERNEL_SECTORS   24
+%define KERNEL_SECTORS   44
 
 ; --- GDT segment selectors (index << 3) --------------------------------------
 %define GDT_NULL_SEL     0x00
